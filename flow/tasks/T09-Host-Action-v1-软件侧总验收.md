@@ -141,3 +141,39 @@ idf.py -C . build
 - `59/59` 宿主测试通过只证明当前代码的宿主可执行逻辑和源码合同通过。
 - ESP-IDF v5.5.5 默认构建通过只证明当前 `v2`／`esp32s3` 源码可以生成固件镜像。
 - 本节点仍未验证：烧录、启动、串口日志、USB／BLE 真机发送、双连接时的真机单通道路由、512 字节状态的真机发布、EasyInput App 0.1.26 能力识别与 UUID→本机应用映射。
+
+## 2026-10-02 状态更新：软件侧总验收在当前基线上重跑（60 项，与上文 59 项的差异已定位）
+
+> 本节由后续节点追加，上文是 `34087cd` 时点的真实验收记录，**原文保留不改**。上文的 `59/59`、镜像 `0x190470` 等数字是当时快照，对当前基线 `7d5f157` 已不适用。
+
+### 数量差异的定位（回应「与上一轮记录不同」）
+
+- 上文记载「课程起点 56 + Host Action 新增 3 = 59」。**实测课程起点注册数为 57，不是 56**：`git show origin/course/host-action-v1-starter:host_test/CMakeLists.txt` 统计到 57 条测试注册，其中第 97 行已包含 `ble_persistence_policy_tests`，且**不含任何 Host Action 测试**。
+- 把上文清单与当前 `ctest -N` 实际清单做集合比对：**新增 1 项 = `ble_persistence_policy_tests`；缺失 0 项**。
+- 因此当前 60 = 课程起点 57 + Host Action 3（`host_action_protocol_tests`、`host_action_key_bindings_tests`、`host_action_capability_status_tests`，三者均已注册），**没有缺失或未被 CTest 发现的测试**。上文「56」应为计数误差。
+
+### 本轮实际命令与结果
+
+```bash
+cmake -S host_test -B build-host -G Ninja -DCMAKE_BUILD_TYPE=Debug   # exit 0
+ctest --test-dir build-host -N                                        # Total Tests: 60；exit 0
+cmake --build build-host                                             # exit 0
+ctest --test-dir build-host --output-on-failure                       # exit 0
+```
+
+- CTest 实际发现 **60**、执行 **60**、通过 **60**、失败 **0**、跳过 **0**；声明清单与执行清单差集为空。未跳过、删除或缩减任何测试来凑数字。
+- 本轮 `main/`、`components/`、`host_test/CMakeLists.txt` 与 `sdkconfig.defaults` 均未产生新改动，宿主测试全部沿用先前节点已通过的版本（本轮只补充了测试内部断言，不改变注册数量）。
+
+### ESP-IDF 默认构建（本轮为全量重建）
+
+- ESP-IDF `v5.5.5`（`idf.py --version`，退出码 0）；目标 `esp32s3` 经 `idf.py --list-targets` 确认存在（退出码 0）；板型为默认 `v2`。**未升级 ESP-IDF、未 `set-target`、未改分区表**。
+- 本轮先删除 `build/` 再执行 `idf.py build`，因此是**全量重建**：约 1290 个编译单元，`Project build complete`，退出码 0。
+- 本轮真实重新编译且与 Host Action 相关的文件：`components/keyboard/src/config_payload.cpp`、`keymap.cpp`、`config_status.cpp`、`host_action_protocol.cpp`、`status_hid_protocol.cpp`、`transport_routing.cpp`、`main/app_main.cpp`、`main/platform/ble_hid.cpp`、`main/platform/usb_hid.cpp`。（与上文不同：上文为增量构建，`host_action_protocol.cpp` 未重编；本轮全量重建中它确实被重新编译。）
+- 产物：`build/easy_input_keyboard.bin` 1,640,528 字节（0x190850）；`build/easy_input_keyboard.elf` 21,469,408 字节；`build/bootloader/bootloader.bin` 20,832 字节（0x5160）；`build/partition_table/partition-table.bin` 3,072 字节。
+- App 分区 `0x300000`／3,145,728 字节，剩余 `0x16f7b0`／1,505,200 字节（工具报告 48% free）；Bootloader 区域剩余 `0x2ea0`（36% free）。镜像比上文 `0x190470` 大 0x3E0 字节，属基线代码增长，非本轮引入。
+- warning 与 error 均为 **0**。构建输出中 13 处 `deprecated` 命中的是 ESP-IDF 自带的 `deprecated/` 源码目录名（`esp_adc`、`driver`、`esp_hw_support`、`bt/ble_log`），**不是弃用告警**，无需修复。
+
+### 禁止范围与仍未验证项
+
+- `git diff --stat -- main components/keyboard/src/host_action_protocol.cpp components/keyboard/include/keyboard/host_action_protocol.h components/keyboard/src/status_hid_protocol.cpp components/keyboard/include/keyboard/status_hid_protocol.h components/keyboard/include/keyboard/config_status.h components/keyboard/src/config_status.cpp components/keyboard/include/keyboard/board_pins.h sdkconfig.defaults partitions.csv` **无输出**；未改 Report ID、kind、容器、HID 描述符、BLE GATT、设备身份、GPIO、BOOT、GPIO8 电源控制或分区；未识别设备、未读串口、未烧录、未运行 App。
+- `60/60` 宿主测试通过只证明当前代码的宿主可执行逻辑与源码合同通过；ESP-IDF 默认构建通过只证明当前 `v2`／`esp32s3` 源码可以生成固件镜像。**烧录、启动、串口日志、USB／BLE 真机发送、双连接真机单通道路由、512 字节状态真机发布、App 0.1.26 能力识别与 UUID→本机应用映射，均仍未验证。**

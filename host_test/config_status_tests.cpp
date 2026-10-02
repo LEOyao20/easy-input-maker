@@ -703,7 +703,11 @@ void escapes_status_strings() {
       false,
   });
 
-  assert(json.find(R"("firmware":"0.1.\"test\"")") != std::string::npos);
+  // Hoisted into a named constant on purpose: MSVC mis-lexes this raw string
+  // when it is passed inline as a call argument (C2017/C3688), while the very
+  // same literal assigned to a variable compiles on every compiler.
+  const std::string quoted_firmware_version = R"("firmware":"0.1.\"test\"")";
+  assert(json.find(quoted_firmware_version) != std::string::npos);
   assert(json.find(R"("status":"bad\\status")") != std::string::npos);
   assert(json.find(R"("saved":false)") != std::string::npos);
   assert(json.find(R"("power")") == std::string::npos);

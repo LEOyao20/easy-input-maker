@@ -2,6 +2,14 @@ cmake_minimum_required(VERSION 3.20)
 
 project(easy_input_keyboard_host_tests LANGUAGES CXX)
 
+# Several test sources and the components they exercise contain non-ASCII
+# (Chinese) string literals stored as UTF-8 without a BOM. Without this, MSVC
+# decodes them with the system code page: it warns (C4819) everywhere and fails
+# to compile a few of them. Pin the source and execution charset to UTF-8.
+if(MSVC)
+  add_compile_options(/utf-8)
+endif()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)

@@ -209,7 +209,10 @@ std::uint64_t decode_fixture(ImaAdpcmDecoder* decoder,
 void fixed_fixture_is_small_audible_and_reset_deterministic() {
   const auto& fixture =
       easy_input::ima_adpcm_assets::kEasyInputBootProbeEiad;
-  static_assert(fixture.size() == 6872U);
+  // Qualify the array directly: reading size() through a reference is not a
+  // constant expression for MSVC (C2131).
+  static_assert(easy_input::ima_adpcm_assets::kEasyInputBootProbeEiad.size() ==
+                6872U);
   ImaAdpcmDecoder decoder;
   assert(decoder.open(fixture.data(), fixture.size()) ==
          ImaAdpcmDecoderStatus::Ok);

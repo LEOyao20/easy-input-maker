@@ -4,6 +4,7 @@
 #include <string>
 
 #include "keyboard/config_payload.h"
+#include "keyboard/host_action_protocol.h"
 #include "keyboard/keymap.h"
 
 namespace {
@@ -89,9 +90,56 @@ void every_main_key_preserves_and_emits_one_host_action_per_press_cycle() {
   }
 }
 
+void encoded_host_action_matches_the_frozen_payload_for_every_main_key() {
+  // The configuration, Keymap and event layers are covered by the case above.
+  // This closes the last host-visible hop: the event emitted by a configured
+  // key is fed into the very same shared encoder that both the USB and BLE
+  // adapters call, so the frozen wire bytes are verified end to end without
+  // either adapter copying its own constants.
+  const std::string configured_action =
+      "host_action:123e4567-e89b-12d3-a456-426614174000";
+  const std::string expected_uuid =
+      "123e4567-e89b-12d3-a456-426614174000";
+
+  for (std::size_t target = 0; target < kMainKeys.size(); ++target) {
+    const auto result = ai_keyboard::parse_config_payload(
+        payload_with_host_action_at(target, configured_action));
+    assert(result.status == ai_keyboard::ConfigParseStatus::Ok);
+
+    const auto& action =
+        result.config.keymap.action_for(kMainKeys[target].input);
+    const auto event = ai_keyboard::event_for_action(
+        action, ai_keyboard::InputPhase::Pressed, "RightMeta", "AltGr");
+    assert(event.kind == ai_keyboard::FirmwareEventKind::HostAction);
+    assert(event.value == configured_action);
+
+    ai_keyboard::HostActionV1Report report;
+    assert(ai_keyboard::encode_host_action_v1(event.value, &report));
+    assert(report.report_id == ai_keyboard::kHostActionV1ReportId);
+    assert(report.payload[0] == ai_keyboard::kHostActionV1CommandKind);
+    assert(report.payload[1] == ai_keyboard::kHostActionV1ChunkIndex);
+    assert(report.payload[2] == ai_keyboard::kHostActionV1TotalChunks);
+    assert(report.payload[3] == 36);
+    assert(report.payload[3] == ai_keyboard::kHostActionV1UuidLen);
+
+    const std::string encoded(
+        reinterpret_cast<const char*>(report.payload.data() +
+                                      ai_keyboard::kHostActionV1HeaderLen),
+        ai_keyboard::kHostActionV1UuidLen);
+    assert(encoded == expected_uuid);
+    assert(encoded.find("host_action:") == std::string::npos);
+    for (std::size_t index = ai_keyboard::kHostActionV1HeaderLen +
+                             ai_keyboard::kHostActionV1UuidLen;
+         index < report.payload.size(); ++index) {
+      assert(report.payload[index] == 0);
+    }
+  }
+}
+
 }  // namespace
 
 int main() {
   every_main_key_preserves_and_emits_one_host_action_per_press_cycle();
+  encoded_host_action_matches_the_frozen_payload_for_every_main_key();
   return 0;
 }

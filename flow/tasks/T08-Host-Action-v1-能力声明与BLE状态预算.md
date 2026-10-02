@@ -113,3 +113,46 @@ ctest --test-dir build-host --output-on-failure
 - `main/platform/ble_hid.cpp` 的状态编码重用尚未经过本轮 ESP-IDF 5.5.5 交叉编译；本轮只有共享编码执行测试与平台源码合同。
 - 尚未通过真实 BLE GATT read 观察最终状态，也未验证 EasyInput App 0.1.26 对能力字段的实际识别。
 - 未烧录、未读串口、未验证 USB／BLE Host Action 真机发送；T06 的传输未验证项保持不变。
+
+## 2026-10-02 状态更新：能力声明与状态预算在当前基线上复核通过（附实测字节数）
+
+> 本节由后续节点追加，上文是 `34087cd` 时点的真实记录，**原文保留不改**。
+
+### 前提核对（与本次任务描述不一致之处）
+
+- 本次任务描述假定「工作区已经保留候选实现和红测」。**实测不成立**：`git status` 中 `components/keyboard/src/config_status.cpp` 与 `components/keyboard/include/keyboard/config_status.h` **没有任何差异**；本轮开始时定向 5/5 与完整 60/60 **全部为绿**，不存在可转绿的红灯。
+- 因此按「不要撤销、重复实现」的要求，本轮**没有重新实现**能力声明或预算逻辑，只做了复核、实测与记录。
+
+### 两条已批准预算规则的落位核对
+
+- 规则一（speaker_probe 只收紧 firmware 到 16 字节，保留全部指标）：`config_status.cpp:16-17` 定义 `kFirmwareStringMaxLen = 40`（普通）与 `kSpeakerProbeFirmwareStringMaxLen = 16`（speaker probe 专用）。`host_test/config_status_tests.cpp:813` 的 `speaker_probe_worst_case_is_versioned_complete_and_gatt_safe()` 以 40 字符 firmware 输入断言输出为 `std::string(16, 'f')`，并逐项断言 13 个扬声器指标字段全部存在；字段名与 JSON 结构未变。
+- 规则二（保留 current power、仅省略四个 cycle 字段）：`config_status.cpp:746-885` 的候选阶梯包含 `compact` → `without_cycle` → … 中间回退。`config_status_tests.cpp:249` 的 `carries_truthful_recent_deep_sleep_cycle_when_budget_allows()` 断言四个 cycle 字段在能放下时全部存在；`:287` 的 `recent_cycle_overflow_keeps_current_power_and_omits_only_cycle()` 断言超限时 `power` 对象与 `mode`／`inactive_ms`／`deep_sleep_block`／`last_wake` 全部保留，而 `cycle_seq`／`cycle_inactive_ms`／`cycle_deep_sleep`／`cycle_wake` **全部缺席**。
+
+### 实测最终序列化 UTF-8 字节数
+
+用仓库外的一次性测量程序（`G://WorkBuddy_space//cache//measure_status.cpp`，链接已构建的 `easy_input_keyboard_core.lib`）对每个发布变体构造最坏情况快照并测量 `std::string::size()`：
+
+| 发布变体 | 最终字节数 | 上限 | 剩余空间 |
+|---|---|---|---|
+| speaker_probe（专用最坏情况） | **512** | 512 | **0** |
+| battery + speaker_probe | **512** | 512 | **0** |
+| confirmation（确认状态） | 467 | 512 | +45 |
+| normal／compact 阶梯（最坏） | 361 | 512 | +151 |
+| normal 无 cycle 字段 | 361 | 512 | +151 |
+| battery（最坏） | 361 | 512 | +151 |
+| BLE fallback 常量 | 241 | 512 | +271 |
+
+- **最大值 = 512，上限 = 512，剩余 = 0**；所有变体均未超过上限。
+- 最大值为 speaker_probe 变体，与上文「最大最终 BLE 状态 512/512 字节」一致；**余量为 0**，说明该变体已顶到预算边界，后续任何新增字段都必须同步处理预算。
+- 上限常量 `kConfigStatusGattSafeLen = 512` 保持不变，未提高。
+
+### 能力声明隔离
+
+`"host_action_v1": true` 只出现在状态 JSON 的 `capabilities` 对象内（`config_status.h:13-17` 的 fallback 常量、`config_status.cpp` 的完整／紧凑／确认路径）。Report ID `0x11` 的 Host Action payload 结构固定为 4 字节头 + 36 字节 UUID，其余字节为零（`host_action_protocol.cpp:44-52`，`host_action_protocol_tests.cpp:74-76` 断言 `[40..62]` 全零），**没有承载能力声明文本的空间**，本轮也未修改该路径。
+
+### 测试与禁止范围
+
+- 定向：`config_status_tests`、`speaker_probe_status_tests`、`speaker_audio_contract_tests`、`host_action_protocol_tests`、`firmware_source_contract_tests` → **5/5 通过，0 失败**。
+- 完整：**60/60 通过、0 失败**，编译错误 0，`ctest` 退出码 0。
+- 禁止范围：`git diff --stat -- main components/keyboard/src/config_status.cpp components/keyboard/include/keyboard/config_status.h components/keyboard/include/keyboard/host_action_protocol.h components/keyboard/src/host_action_protocol.cpp components/keyboard/include/keyboard/board_pins.h sdkconfig.defaults partitions.csv` **无输出**。本轮**没有增加也没有修改** `"host_action_v1": true`（它由先前节点引入且已存在），未提高 512 上限，未删除任何能力或状态字段，未修改 Report ID、`0x04`／`0x05` 职责、63 字节容器、HID 描述符、BLE GATT、设备身份、GPIO、BOOT、电源控制、Flash 分区或示例 UUID，未运行 ESP-IDF 构建，未烧录。
+- 仍未验证项：沿用上文；另本轮新增的只是测量，**未在实板或真实 BLE 链路上观察 512 字节变体的实际传输**，也未验证 App 0.1.26 对 `capabilities` 的解析。

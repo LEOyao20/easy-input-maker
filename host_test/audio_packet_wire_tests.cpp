@@ -30,13 +30,17 @@ std::uint64_t read_le64(const std::uint8_t* bytes) {
 
 int main() {
   std::array<std::uint8_t, ai_keyboard::kAudioPacketHeaderBytes> packet{};
+  // Positional order must stay in step with AudioPacketMetadata in
+  // components/keyboard/include/keyboard/audio_packet_wire.h. Designated
+  // initializers would read better, but they are C++20 while this suite is
+  // built as C++17 to match the firmware.
   const ai_keyboard::AudioPacketMetadata metadata{
-      .session_id = 0x0102030405060708ULL,
-      .capture_sequence = 17,
-      .sample_rate = 16000,
-      .capture_timestamp_ms = 123456,
-      .frame_samples = 320,
-      .payload_bytes = 640,
+      0x0102030405060708ULL,
+      17,
+      16000,
+      123456,
+      320,
+      640,
   };
 
   assert(ai_keyboard::encode_audio_packet_header(packet.data(), packet.size(), metadata));

@@ -114,3 +114,14 @@ idf.py build
 - 未在实板制造已选 USB／BLE 队列失败，因而“失败不补发”目前由宿主源码合同和现有控制流证明，不是实板观察。
 - 未烧录、未读串口、未验证真实按键到 App 动作的端到端结果。
 - 第 08 步 `"host_action_v1": true` 和 BLE 状态 512 字节预算仍未实现或验证。
+
+## 2026-10-02 状态更新：发送接入在当前基线上复核对齐
+
+> 本节由后续节点追加，上文是 `34087cd` 时点的真实记录。其中「完整宿主测试 58/58」「第 08 步 `"host_action_v1": true` 和 BLE 状态 512 字节预算仍未实现或验证」对当前基线 `7d5f157` 已不成立（完整套件现为 60 项；第 08 步能力声明与 512 字节预算已实现）。**原文保留不改。**
+
+- 复核方式：逐行重读 `main/app_main.cpp` 的 `dispatch_firmware_event()`、`main/platform/usb_hid.cpp` 与 `main/platform/ble_hid.cpp` 的 Host Action 分支，与上文调用链逐一对照。
+- 复核结论：调用链、共享编码边界与单通道路由**与上文完全一致，无需改动**。USB 侧 `UsbHidTransport::send_firmware_event_for_epoch()` 与 BLE 侧 `BleHidTransport::send_firmware_event_for_owner()` 的 Host Action 分支结构相同，各自**只调用一次** `ai_keyboard::encode_host_action_v1()`，随后把 `report.payload[0..3]` 与 `report.payload.data() + kHostActionV1HeaderLen` 交给各自既有的 `send_app_command_report()`；两侧都没有 `kAppCommandKindHostAction`、`0x05`、`36`、`48` 字面量，只用共享的 `ai_keyboard::kHostActionV1*` 常量与 `static_assert` 锁定编号。
+- 本轮唯一改动：`host_test/host_action_key_bindings_tests.cpp` 新增 `encoded_host_action_matches_the_frozen_payload_for_every_main_key()`。此前「配置 → Keymap → 事件」与「字符串 → 冻结字节」分别有测试，但**没有任何用例把两者拼起来**；新用例对 8 个主键各跑一遍按键周期，把事件值喂进**两侧传输共用的同一个编码器**，断言 Report ID `0x11`、kind `0x05`、chunk index `0`、total chunks `1`、data length `36`、数据区仅 36 字节 UUID 且不含前缀、`[40..62]` 全零。
+- 测试结果：定向 8/8 通过（含 `firmware_source_contract_tests`、`transport_routing_tests`、`hid_report_queue_tests`、`usb_hid_endpoint_arbiter_tests`、`ble_input_scheduler_tests`）；完整宿主 **60/60 通过、0 失败**，编译错误 0，`ctest` 退出码 0。
+- 禁止范围差异：`git diff --stat -- main` 无输出；`config_status.h`／`config_status.cpp`／`sdkconfig.defaults`／`partitions.csv`／`board_pins.h` 均无差异。本轮**没有增加也没有修改** `"host_action_v1": true`（它由第 08 步先行节点引入，现状保持原样），未改 HID 描述符、BLE GATT、设备身份、GPIO、BOOT、电源或 Flash 分区，未烧录。
+- 仍未验证项：与上文一致 —— App 0.1.26 真机 UUID 同步、USB-only／BLE-only／双连接下的实际 Vendor HID 抓包、实板队列失败下的「不补发」观察、烧录与实板端到端，均未验证。本轮同样**未运行 ESP-IDF 构建**。

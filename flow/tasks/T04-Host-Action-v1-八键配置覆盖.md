@@ -88,3 +88,14 @@ ctest --test-dir build-host --output-on-failure
 - 未运行 ESP-IDF 5.5.5 默认构建。
 - 未验证 EasyInput App 0.1.26 同步、真实设备发送、烧录、串口或实板行为。
 - 第 08 步 `"host_action_v1": true` 与 BLE 状态 512 字节预算仍未实现或验证。
+
+## 2026-10-02 状态更新：八键覆盖在当前基线上复核通过
+
+> 本节由后续节点追加。上文是 `34087cd` 时点的真实记录，**原文保留不改**；其中「完整宿主 58/58」「第 08 步能力声明仍未实现或验证」等表述对当前基线 `7d5f157` 已不成立（完整套件现为 60 项；第 08 步 `"host_action_v1": true` 与 BLE 512 字节预算已实现）。
+
+- 复核结论：八键共用通用解析、Keymap 保留完整 `host_action:` 前缀、按下只产生一次、松开不产生第二个动作，**在当前基线上依旧成立**。
+- 本轮测试结果：定向 5/5 通过，完整宿主 **60/60 通过、0 失败**，编译错误 0，`ctest` 退出码 0。
+- 本轮唯一新增覆盖：`host_test/keymap_tests.cpp` 的 `default_mapping_covers_all_keys_and_encoder()` 增加两条负向断言 —— 对全部 11 个输入断言 `kind != ActionKind::HostAction` 且 `host_action.empty()`。原有断言只钉住 `ActionKind`，无法发现「动作类型没变、但 `host_action` 字段被写入」的情况；这条边界正是「固定示例 UUID 不得进入默认 Keymap」所要求的。
+- 生产代码零改动：`config_payload.cpp`、`keymap.cpp`、`keymap.h`、`host_action_protocol.cpp`、`usb_hid.cpp`、`ble_hid.cpp` 等 10 个文件的 SHA-256 与复核前完全一致。
+- 示例 UUID 边界证据（2026-10-02 实测）：精确检索只命中 `host_test/` 下 6 个测试文件；`components/`、`main/`、`features/`、`diagnostics/` 命中数为 **0**。
+- 仍未验证项：与上文一致；另本轮**未做变异验证**（避免再次触发 CRT abort 对话框），新增负向断言的「有效性」尚无突变证据；仍未构建固件、未烧录、未接 USB／BLE。

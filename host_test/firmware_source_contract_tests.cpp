@@ -119,11 +119,26 @@ static_assert(std::is_same_v<
               SpeakerAssetsRuntimeCore::StepOutcome>);
 
 std::string read_source(const std::string& relative_path) {
-  std::ifstream input(std::string(EASY_INPUT_REPO_ROOT) + "/" + relative_path);
+  // Binary mode is required here: text mode treats 0x1A as end-of-file on
+  // Windows and would silently truncate binary fixtures such as the Opus probe
+  // asset. CRLF is normalized afterwards so that the source markers matched
+  // below see the same text on every platform.
+  std::ifstream input(std::string(EASY_INPUT_REPO_ROOT) + "/" + relative_path,
+                      std::ios::binary);
   assert(input.good());
   std::ostringstream contents;
   contents << input.rdbuf();
-  return contents.str();
+  const std::string raw = contents.str();
+  std::string normalized;
+  normalized.reserve(raw.size());
+  for (std::size_t index = 0; index < raw.size(); ++index) {
+    if (raw[index] == '\r' && index + 1U < raw.size() &&
+        raw[index + 1U] == '\n') {
+      continue;
+    }
+    normalized.push_back(raw[index]);
+  }
+  return normalized;
 }
 
 std::string section(const std::string& source,

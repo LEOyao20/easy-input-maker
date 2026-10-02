@@ -318,7 +318,7 @@ TestBundle make_full_mapping_boundary_bundle() {
 
   const auto mapping_offset = 32U + kResourceCount * 48U;
   const auto write_mapping =
-      [&bundle](std::size_t mapping_index,
+      [&bundle, mapping_offset](std::size_t mapping_index,
                 std::uint8_t trigger,
                 std::uint8_t index,
                 std::uint16_t resource_index) {

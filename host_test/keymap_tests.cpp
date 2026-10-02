@@ -25,6 +25,20 @@ void default_mapping_covers_all_keys_and_encoder() {
   assert(keymap.action_for(InputId::EncoderLeft).kind == ActionKind::Disabled);
   assert(keymap.action_for(InputId::EncoderRight).kind == ActionKind::Disabled);
   assert(keymap.action_for(InputId::EncoderPress).kind == ActionKind::ScrollAxisToggle);
+
+  // The default map must not carry a Host Action: the fixed sample UUID used
+  // by the host tests is a fixture only and must never become a product
+  // default or an application mapping.
+  const InputId all_inputs[] = {
+      InputId::Key1, InputId::Key2, InputId::Key3, InputId::Key4,
+      InputId::Key5, InputId::Key6, InputId::Key7, InputId::Key8,
+      InputId::EncoderLeft, InputId::EncoderRight, InputId::EncoderPress,
+  };
+  for (const auto input : all_inputs) {
+    const auto& action = keymap.action_for(input);
+    assert(action.kind != ActionKind::HostAction);
+    assert(action.host_action.empty());
+  }
 }
 
 void voice_hold_actions_emit_press_and_release_events() {
@@ -126,6 +140,52 @@ void host_actions_emit_one_event_on_press_and_none_on_release() {
   assert(!down.bridge_app_hotkey);
   assert(up.kind == FirmwareEventKind::None);
   assert(up.value.empty());
+}
+
+void noncanonical_host_actions_fail_closed_at_the_event_layer() {
+  // The configuration layer already rejects these values, but an Action can
+  // also be assembled in code. event_for_action() must refuse any value that
+  // is not the frozen canonical form, on both edges, and must never normalise
+  // the value into something usable. This is the last guard before an event
+  // would reach a transport.
+  const char* const rejected[] = {
+      "host_action:123E4567-e89b-12d3-a456-426614174000",   // uppercase
+      "host_action:123e4567-e89b-12d3-a456-42661417400",    // too short
+      "host_action:123e4567-e89b-12d3-a456-4266141740000",  // too long
+      "host_action:123e456-7e89b-12d3-a456-426614174000",   // hyphen moved
+      "host_action:123e4567-e89b-12d3-a456-42661417400g",   // illegal character
+      "host_action:",                                       // prefix only
+      "123e4567-e89b-12d3-a456-426614174000",               // prefix missing
+      "",
+  };
+
+  for (const auto* value : rejected) {
+    ai_keyboard::Action action;
+    action.kind = ActionKind::HostAction;
+    action.host_action = value;
+
+    const auto down = ai_keyboard::event_for_action(
+        action, ai_keyboard::InputPhase::Pressed, "RightMeta", "AltGr");
+    assert(down.kind == FirmwareEventKind::None);
+    assert(down.value.empty());
+
+    const auto up = ai_keyboard::event_for_action(
+        action, ai_keyboard::InputPhase::Released, "RightMeta", "AltGr");
+    assert(up.kind == FirmwareEventKind::None);
+    assert(up.value.empty());
+  }
+
+  // Control: the canonical value still emits exactly one event on press, and
+  // the emitted value keeps the full configuration prefix.
+  ai_keyboard::Action canonical;
+  canonical.kind = ActionKind::HostAction;
+  canonical.host_action = "host_action:123e4567-e89b-12d3-a456-426614174000";
+  const auto emitted = ai_keyboard::event_for_action(
+      canonical, ai_keyboard::InputPhase::Pressed, "RightMeta", "AltGr");
+  assert(emitted.kind == FirmwareEventKind::HostAction);
+  assert(emitted.value == canonical.host_action);
+  assert(emitted.value.rfind("host_action:", 0) == 0);
+  assert(!emitted.bridge_app_hotkey);
 }
 
 void custom_hotkey_actions_emit_press_and_release_events() {
@@ -238,6 +298,7 @@ int main() {
   disabled_actions_emit_no_event();
   fixed_text_actions_emit_text_event_on_press_only();
   host_actions_emit_one_event_on_press_and_none_on_release();
+  noncanonical_host_actions_fail_closed_at_the_event_layer();
   custom_hotkey_actions_emit_press_and_release_events();
   semantic_actions_resolve_for_each_target_platform();
   default_eight_keys_emit_exact_hid_for_both_platforms();
